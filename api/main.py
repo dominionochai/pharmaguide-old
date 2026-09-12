@@ -13,8 +13,9 @@ from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel, Field
 
 from api.herb_detector import identify_from_image, lookup
-from data.chem import canonical_smiles, fingerprint_array, load_cache, save_cache
+from data.che m import canonical_smiles, fingerprint_array, load_cache, save_cache
 from pharmaguide.herbs_db import HERBS_DB, medication_flags
+
 
 ROOT = Path(__file__).resolve().parents[1]
 MODEL_PATH = ROOT / "models" / "interaction_model.joblib"
@@ -71,16 +72,25 @@ def detect(request: MedicationRequest):
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         probabilities = model.predict_proba(np.bitwise_xor(first, second).reshape(1, -1))[0]
         position = int(np.argmax(probabilities))
-        class_number = int(model.classes_[position])
-        severity = _labels[class_number] if class_number < len(_labels) else DEFAULT_LABELS[class_number]
-        results.append({"drug_a": drug_a, "drug_b": drug_b, "severity": severity, "confidence": round(float(probabilities[position]), 2)})
+        severity = _labels[int(model.classes_[position])] if int(model.classes_[position]) < len(_labels) else DEFAULT_LABELS[position]
+        results.append({
+            "drug_a": drug_a,
+            "drug_b": drug_b,
+            "severity": severity,
+            "confidence": round(float(probabilities[position]), 2),
+        })
     order = {label: index for index, label in enumerate(DEFAULT_LABELS)}
     results.sort(key=lambda item: order.get(item["severity"], -1), reverse=True)
     return {"interactions": results, "summary": f"{len(results)} risky interactions found"}
 
 
-def _unknown_herb():
-    return {"identified": False, "message": "could not identify — please type the herb name", "herbs": list(HERBS_DB.keys())}
+def _unknown_herb(method: str = "manual"):
+    return {
+        "identified": False,
+        "method": method if method in {"trained_model", "vision_api", "manual"} else "manual",
+        "message": "could not identify — please type the herb name",
+        "herbs": list(HERBS_DB.keys()),
+    }
 
 
 def _medication_list(value: str | None) -> list[str]:
@@ -96,9 +106,15 @@ def _medication_list(value: str | None) -> list[str]:
 
 
 @app.post("/detect-herb")
-async def detect_herb(image: UploadFile | None = File(default=None), name: str | None = Form(default=None), medications: str | None = Form(default=None)):
+async def detect_herb(
+    image: UploadFile | None = File(default=None),
+    name: str | None = Form(default=None),
+    medications: str | None = Form(default=None),
+):
     identified_name = name.strip() if name and name.strip() else None
     temporary = None
+    method = "manual"
+    trained_confidence = None
     try:
         if not identified_name and image is not None:
             contents = await image.read()
@@ -107,15 +123,41 @@ async def detect_herb(image: UploadFile | None = File(default=None), name: str |
                 temporary = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
                 temporary.write(contents)
                 temporary.close()
-                identified_name = identify_from_image(temporary.name, os.getenv("HERB_VISION_API_KEY"))
+                try:
+                    identification = identify_from_image(
+                        temporary.name,
+                        os.getenv("HERB_VISION_API_KEY"),
+                    )
+                except Exception:
+                    identification = None
+                if isinstance(identification, dict):
+                    identified_name = identification.get("herb") or identification.get("name")
+                    candidate_method = identification.get("method")
+                    if candidate_method in {"trained_model", "vision_api"}:
+                        method = candidate_method
+                    if method == "trained_model":
+                        try:
+                            trained_confidence = float(identification.get("confidence"))
+                        except (TypeError, ValueError):
+                            trained_confidence = None
+                elif identification:
+                    identified_name = str(identification)
+                    method = "vision_api"
         if not identified_name:
-            return _unknown_herb()
-        record, confidence = lookup(identified_name)
+            return _unknown_herb(method)
+        record, match_confidence = lookup(identified_name)
         if record is None:
-            return _unknown_herb()
+            return _unknown_herb(method)
         meds = _medication_list(medications)
         flags = medication_flags(record, meds)
-        return {"identified": True, "herb": {**record, "confidence": confidence}, "interactions": flags, "tell_your_doctor": f"Oga doctor: dis one na {record['common_name']}, e fit interact with some of my medicines — abeg check am."}
+        confidence = trained_confidence if method == "trained_model" and trained_confidence is not None else match_confidence
+        return {
+            "identified": True,
+            "herb": {**record, "confidence": float(confidence)},
+            "interactions": flags,
+            "method": method,
+            "tell_your_doctor": f"Oga doctor: dis one na {record['common_name']}, e fit interact with some of my medicines — abeg check am.",
+        }
     finally:
         if temporary is not None:
             try:
