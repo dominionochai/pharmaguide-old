@@ -1,0 +1,43 @@
+name: Train PharmaGuide models
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+jobs:
+  train:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install interaction dependencies
+        run: pip install rdkit scikit-learn pandas numpy joblib pyyaml
+
+      - name: Install CPU PyTorch
+        run: pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+
+      - name: Fetch DDInter data
+        run: python data/fetch_ddinter.py
+
+      - name: Train interaction model
+        run: python train.py --quick
+
+      - name: Train herb classifier
+        continue-on-error: true
+        run: python train_herb_classifier.py
+
+      - name: Upload trained models
+        uses: actions/upload-artifact@v4
+        with:
+          name: pharmaguide-models
+          path: models/
+          if-no-files-found: warn
+          retention-days: 7
