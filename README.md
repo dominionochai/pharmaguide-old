@@ -1,46 +1,72 @@
 # pharmaguide
 
-**the invisible med list African doctors never get to see**
+**The invisible med list: a safer medication conversation for African clinics.**
 
-A Python prototype: a patient snaps photos of packs, the app builds the full med list (western + OTC + herbal), flags dangerous interactions with confidence, and prints a plain-language tell-your-doctor sheet.
+PharmaGuide is an offline-first prototype that combines a patient medication list
+with over-the-counter products and locally used herbs. It flags potentially risky
+medication interactions and produces a plain-language prompt for a clinician. It
+is a decision-support prototype, not medical advice.
 
 ## How it works
 
-`photo -> OCR glue -> med list -> fingerprint interaction model -> flags`
+`medication names -> local SMILES/cache -> fingerprints -> interaction model -> flags`
 
-This repository supplies the interaction-model and API pieces. OCR glue can pass recognized names to a `POST /detect`; a production photo pipeline would add image capture and OCR.
-
-## The African medicine-bag story
-
-A medicine bag in an African clinic may contain a prescription, an OTC painkiller, a supplement, and a locally used herbal preparation. A clinician often sees only the medicine the patient remembers to mention. pharmaguide is designed around the real bag: collect every pack, preserve uncertainty, and make the complete list easy to discuss with a doctor.
-
-## ML artifact
-
-There is **ONE trained ML model**: an interaction severity classifier trained on DDInter. `train.py` maps names to PubChem canonical SMILES, computes RDKit Morgan fingerprints (radius 2, 1024 bits), XORS the two fingerprints, and trains a CPU-only class-balanced multi-class RandomForest. The artifact is `models/interaction_model.joblib`, with labels in `models/severity_labels.json`.
+The interaction model is trained from the curated examples in `train.py`. The
+training path is deterministic and does not require downloading DDInter data.
+`data/chem.py` uses built-in SMILES and a deterministic fingerprint fallback when
+RDKit or a cached PubChem result is unavailable.
 
 ## Quickstart
 
 ```bash
-python -m venv venv
-. venv/bin/activate
-pip install -r requirements.txt
-python data/fetch_ddinter.py
-python train.py
+python -m venv .venv
+. .venv/bin/activate                 # Windows: .venv\\Scripts\\activate
+python -m pip install -r requirements.txt
+python train.py --quick
 uvicorn api.main:app --reload
-curl -X POST http://127.0.0.1:8000/detect -H 'content-type: application/json' -d '{"medications":["aspirin","warfarin"]}'
+```
+
+The API is available at `http://127.0.0.1:8000`:
+
+```bash
+curl http://127.0.0.1:8000/health
+curl -X POST http://127.0.0.1:8000/detect \\
+  -H 'content-type: application/json' \\
+  -d '{"medications":["aspirin","warfarin"]}'
+curl http://127.0.0.1:8000/herbs
+```
+
+`POST /detect` accepts at least two medication names. `POST /detect-herb` also
+accepts a manual `name`, optional comma-separated `medications`, and an optional
+image upload. Image identification is best-effort: the API uses the local herb
+model when its artifacts are present, then an optional vision service, and finally
+returns a manual-identification response.
+
+Run the offline test suite with:
+
+```bash
 pytest -q
 ```
 
-`GET /health` works before training and reports whether the model is loaded. `api/demo_sheet.py` renders a short English + simple pidgin tell-your-doctor line for a flag.
+## Generated model artifacts
 
-## Limitations
+`python train.py --quick` writes these local artifacts:
 
-This is a prototype, not medical advice. It is not a substitute for a clinician or pharmacist, does not prove that a product is safe, and may miss brand names, herbal ingredients, OCR errors, regional products, and interactions absent from DDInter. Never stop or change a medicine based on this output. Validate every flag with a qualified professional.
+- `models/interaction_model.joblib`
+- `models/severity_labels.json`
 
-## License and data
+They are intentionally ignored by Git. The GitHub Actions workflow runs tests,
+trains offline on pushes to `main` or manual dispatch, verifies both artifacts,
+and uploads them as a short-lived workflow artifact. `models/.gitkeep` keeps the
+directory in the repository.
 
-DDInter and PubChem have their own terms and provenance. Check upstream sources before redistribution or clinical use.
+## Limitations and safety
 
-## Train in the cloud
+This is a prototype, not a substitute for a clinician or pharmacist. It does not
+prove that a product is safe, may miss brand names, herbal ingredients, OCR
+errors, regional products, or interactions absent from its training examples.
+Never stop or change a medicine based only on this output; validate every flag
+with a qualified professional.
 
-Train in the cloud: push to GitHub → Actions → Train PharmaGuide models → download pharmaguide-models artifact
+DDInter and PubChem have their own terms and provenance. Review upstream sources
+before redistribution or clinical use.

@@ -6,38 +6,42 @@ on:
     branches:
       - main
 
+permissions:
+  contents: read
+
 jobs:
   train:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
+      - name: Check out repository
         uses: actions/checkout@v4
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+          cache: pip
 
-      - name: Install interaction dependencies
-        run: pip install rdkit scikit-learn pandas numpy joblib pyyaml
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
 
-      - name: Install CPU PyTorch
-        run: pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+      - name: Run API tests
+        run: pytest -q
 
-      - name: Fetch DDInter data
-        run: python data/fetch_ddinter.py
-
-      - name: Train interaction model
+      - name: Train interaction model offline
         run: python train.py --quick
 
-      - name: Train herb classifier
-        continue-on-error: true
-        run: python train_herb_classifier.py
+      - name: Verify generated artifacts
+        run: |
+          test -s models/interaction_model.joblib
+          test -s models/severity_labels.json
 
       - name: Upload trained models
         uses: actions/upload-artifact@v4
         with:
           name: pharmaguide-models
           path: models/
-          if-no-files-found: warn
+          if-no-files-found: error
           retention-days: 7

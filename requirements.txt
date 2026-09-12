@@ -1,15 +1,19 @@
-fastapi
-uvicorn
-scikit-learn
-pandas
-numpy
-rdkit
-requests
-python-multipart
-joblib
-pytest
-Pillow
+# Core API and offline interaction-model training
+fastapi>=0.110,<1
+uvicorn[standard]>=0.29,<1
+numpy>=1.24
+pandas>=2.0
+scikit-learn>=1.3
+joblib>=1.3
+requests>=2.31
+python-multipart>=0.0.9
+pytest>=8.0
+httpx>=0.27
 
-# herb classifier training — heavy, optional
-torch
-torchvision
+# Optional chemistry/image enrichment. data/chem.py has a deterministic fallback
+rdkit
+Pillow>=10.0
+
+# The herb-image classifier is optional; the API remains usable without it.
+# torch
+# torchvision

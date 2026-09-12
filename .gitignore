@@ -1,8 +1,19 @@
-venv
-__pycache__
-*.pyc
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+
+# Downloaded/enriched data and local caches
 data/*.zip
 data/ddinter.csv
 data/smiles_cache.json
+
+# Generated model artifacts (keep models/.gitkeep tracked)
 models/*.joblib
+models/*.pt
+models/*.pth
+models/*.onnx
+
 .DS_Store

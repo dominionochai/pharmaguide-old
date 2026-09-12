@@ -13,7 +13,7 @@ from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel, Field
 
 from api.herb_detector import identify_from_image, lookup
-from data.che m import canonical_smiles, fingerprint_array, load_cache, save_cache
+from data.chem import canonical_smiles, fingerprint_array, load_cache, save_cache
 from pharmaguide.herbs_db import HERBS_DB, medication_flags
 
 
@@ -32,7 +32,7 @@ def _load_model():
         try:
             _model = joblib.load(MODEL_PATH)
             if LABEL_PATH.exists():
-                loaded = json.loads(LABEL_PATH.read_text())
+                loaded = json.loads(LABEL_PATH.read_text(encoding="utf-8"))
                 if isinstance(loaded, list) and loaded:
                     _labels = loaded
         except Exception:
@@ -41,7 +41,7 @@ def _load_model():
 
 
 class MedicationRequest(BaseModel):
-    medications: list[str] = Field(..., min_length=2)
+    medications: list[str] = Field(..., min_length=2, max_length=100)
 
 
 @app.get("/health")
@@ -53,16 +53,31 @@ def health():
 def detect(request: MedicationRequest):
     model = _load_model()
     if model is None:
-        raise HTTPException(status_code=400, detail="Interaction model is not trained yet; run train.py first")
-    medications = [name.strip() for name in request.medications if name and name.strip()]
+        raise HTTPException(
+            status_code=400,
+            detail="Interaction model is not trained yet; run train.py first",
+        )
+
+    medications = [name.strip() for name in request.medications if name.strip()]
     if len(medications) < 2:
         raise HTTPException(status_code=400, detail="Provide at least two medication names")
+    if len(set(medications)) < 2:
+        raise HTTPException(
+            status_code=400, detail="Provide at least two distinct medication names"
+        )
+
     cache = load_cache()
-    smiles = {name: canonical_smiles(name, cache) for name in dict.fromkeys(medications)}
+    smiles = {
+        name: canonical_smiles(name, cache)
+        for name in dict.fromkeys(medications)
+    }
     save_cache(cache)
     missing = [name for name, value in smiles.items() if not value]
     if missing:
-        raise HTTPException(status_code=400, detail=f"PubChem could not resolve: {', '.join(missing)}")
+        raise HTTPException(
+            status_code=400, detail=f"PubChem could not resolve: {', '.join(missing)}"
+        )
+
     results = []
     for drug_a, drug_b in combinations(medications, 2):
         try:
@@ -70,18 +85,33 @@ def detect(request: MedicationRequest):
             second = np.asarray(fingerprint_array(smiles[drug_b]), dtype=np.uint8)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
-        probabilities = model.predict_proba(np.bitwise_xor(first, second).reshape(1, -1))[0]
+
+        probabilities = model.predict_proba(
+            np.bitwise_xor(first, second).reshape(1, -1)
+        )[0]
         position = int(np.argmax(probabilities))
-        severity = _labels[int(model.classes_[position])] if int(model.classes_[position]) < len(_labels) else DEFAULT_LABELS[position]
-        results.append({
-            "drug_a": drug_a,
-            "drug_b": drug_b,
-            "severity": severity,
-            "confidence": round(float(probabilities[position]), 2),
-        })
+        classes = getattr(model, "classes_", [])
+        class_id = int(classes[position]) if len(classes) > position else position
+        severity = (
+            _labels[class_id] if 0 <= class_id < len(_labels) else DEFAULT_LABELS[position]
+        )
+        results.append(
+            {
+                "drug_a": drug_a,
+                "drug_b": drug_b,
+                "severity": severity,
+                "confidence": round(float(probabilities[position]), 2),
+            }
+        )
+
     order = {label: index for index, label in enumerate(DEFAULT_LABELS)}
-    results.sort(key=lambda item: order.get(item["severity"], -1), reverse=True)
-    return {"interactions": results, "summary": f"{len(results)} risky interactions found"}
+    results.sort(
+        key=lambda item: order.get(item["severity"], -1), reverse=True
+    )
+    return {
+        "interactions": results,
+        "summary": f"{len(results)} risky interactions found",
+    }
 
 
 def _unknown_herb(method: str = "manual"):
@@ -125,8 +155,7 @@ async def detect_herb(
                 temporary.close()
                 try:
                     identification = identify_from_image(
-                        temporary.name,
-                        os.getenv("HERB_VISION_API_KEY"),
+                        temporary.name, os.getenv("HERB_VISION_API_KEY")
                     )
                 except Exception:
                     identification = None
@@ -135,22 +164,24 @@ async def detect_herb(
                     candidate_method = identification.get("method")
                     if candidate_method in {"trained_model", "vision_api"}:
                         method = candidate_method
-                    if method == "trained_model":
+                    if candidate_method == "trained_model":
                         try:
                             trained_confidence = float(identification.get("confidence"))
                         except (TypeError, ValueError):
                             trained_confidence = None
-                elif identification:
-                    identified_name = str(identification)
-                    method = "vision_api"
         if not identified_name:
             return _unknown_herb(method)
+
         record, match_confidence = lookup(identified_name)
         if record is None:
             return _unknown_herb(method)
         meds = _medication_list(medications)
         flags = medication_flags(record, meds)
-        confidence = trained_confidence if method == "trained_model" and trained_confidence is not None else match_confidence
+        confidence = (
+            trained_confidence
+            if method == "trained_model" and trained_confidence is not None
+            else match_confidence
+        )
         return {
             "identified": True,
             "herb": {**record, "confidence": float(confidence)},
