@@ -8,7 +8,7 @@ A Python prototype: a patient snaps photos of packs, the app builds the full med
 
 `photo -> OCR glue -> med list -> fingerprint interaction model -> flags`
 
-This repository supplies the interaction-model and API pieces. OCR glue can pass recognized names to `POST /detect`; a production photo pipeline would add image capture and OCR.
+This repository supplies the interaction-model and API pieces. OCR glue can pass recognized names to a `POST /detect`; a production photo pipeline would add image capture and OCR.
 
 ## The African medicine-bag story
 
@@ -16,7 +16,7 @@ A medicine bag in an African clinic may contain a prescription, an OTC painkille
 
 ## ML artifact
 
-There is **ONE trained ML model**: an interaction severity classifier trained on DDInter. `train.py` maps names to PubChem canonical SMILES, computes RDKit Morgan fingerprints (radius 2, 1024 bits), XORs the two fingerprints, and trains a CPU-only class-balanced multi-class RandomForest. The artifact is `models/interaction_model.joblib`, with labels in `models/severity_labels.json`.
+There is **ONE trained ML model**: an interaction severity classifier trained on DDInter. `train.py` maps names to PubChem canonical SMILES, computes RDKit Morgan fingerprints (radius 2, 1024 bits), XORS the two fingerprints, and trains a CPU-only class-balanced multi-class RandomForest. The artifact is `models/interaction_model.joblib`, with labels in `models/severity_labels.json`.
 
 ## Quickstart
 
@@ -40,3 +40,7 @@ This is a prototype, not medical advice. It is not a substitute for a clinician 
 ## License and data
 
 DDInter and PubChem have their own terms and provenance. Check upstream sources before redistribution or clinical use.
+
+## Train in the cloud
+
+Train in the cloud: push to GitHub → Actions → Train PharmaGuide models → download pharmaguide-models artifact
