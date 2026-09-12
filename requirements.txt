@@ -8,3 +8,8 @@ requests
 python-multipart
 joblib
 pytest
+Pillow
+
+# herb classifier training — heavy, optional
+torch
+torchvision
