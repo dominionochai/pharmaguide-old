@@ -1,6 +1,7 @@
 """Offline-first chemistry helpers with cached PubChem enrichment."""
 from __future__ import annotations
 import hashlib, json
+import numpy as np
 from pathlib import Path
 from typing import Dict, Optional
 from urllib.parse import quote
@@ -83,7 +84,7 @@ def fingerprint_array(smiles: str) -> list[int]:
     if RDKIT_AVAILABLE:
         molecule = Chem.MolFromSmiles(smiles)
         if molecule is not None:
-            vector = [0] * 1024
+            vector = np.zeros(1024, dtype=np.uint8)
             DataStructs.ConvertToNumpyArray(AllChem.GetMorganFingerprintAsBitVect(molecule, 2, nBits=1024), vector)
             return [int(value) for value in vector]
     return _hashed_fingerprint(smiles)
