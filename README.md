@@ -1,26 +1,18 @@
 # pharmaguide
 
-**The invisible med list: a safer medication conversation for African clinics.**
-
-PharmaGuide is an offline-first prototype that combines a patient medication list
-with over-the-counter products and locally used herbs. It flags potentially risky
-medication interactions and produces a plain-language prompt for a clinician. It
-is a decision-support prototype, not medical advice.
+PharmaGuide is an offline-first medicine conversation service for African clinics. It combines a patient medication list with locally used herbs and a curated interaction catalog, then returns plain-language prompts for a clinician. It is decision support, not medical advice.
 
 ## How it works
 
-`medication names -> local SMILES/cache -> fingerprints -> interaction model -> flags`
+`medicine names -> case-insensitive catalog lookup -> matched medicine and herb items -> database interaction flags -> optional trained severity model`
 
-The interaction model is trained from the curated examples in `train.py`. The
-training path is deterministic and does not require downloading DDInter data.
-`data/chem.py` uses built-in SMILES and a deterministic fingerprint fallback when
-RDKit or a cached PubChem result is unavailable.
+The API uses the local catalog first. A trained interaction model is used when `models/interaction_model.joblib` is present; otherwise `/detect` continues in database-only mode.
 
 ## Quickstart
 
 ```bash
 python -m venv .venv
-. .venv/bin/activate                 # Windows: .venv\\Scripts\\activate
+. .venv/bin/activate
 python -m pip install -r requirements.txt
 python train.py --quick
 uvicorn api.main:app --reload
@@ -30,43 +22,17 @@ The API is available at `http://127.0.0.1:8000`:
 
 ```bash
 curl http://127.0.0.1:8000/health
-curl -X POST http://127.0.0.1:8000/detect \\
-  -H 'content-type: application/json' \\
-  -d '{"medications":["aspirin","warfarin"]}'
-curl http://127.0.0.1:8000/herbs
+curl -X POST http://127.0.0.1:8000/detect \
+  -H 'content-type: application/json' \
+  -d '{"medications":["amlodipine","simvastatin"]}'
 ```
 
-`POST /detect` accepts at least two medication names. `POST /detect-herb` also
-accepts a manual `name`, optional comma-separated `medications`, and an optional
-image upload. Image identification is best-effort: the API uses the local herb
-model when its artifacts are present, then an optional vision service, and finally
-returns a manual-identification response.
+`POST /detect` accepts at least two case-insensitive medicine or herb names and returns matched items, interaction flags, their severity and confidence, the active detection mode, and a tell-your-doctor sheet. `POST /detect-herb` accepts a manual herb name, an optional comma-separated medication list, and an optional image upload.
 
-Run the offline test suite with:
+## Generated artifacts
 
-```bash
-pytest -q
-```
+`python train.py --quick` writes `models/interaction_model.joblib` and `models/severity_labels.json`. The repository workflow can rebuild these artifacts when needed; the API remains usable without them.
 
-## Generated model artifacts
+## Safety
 
-`python train.py --quick` writes these local artifacts:
-
-- `models/interaction_model.joblib`
-- `models/severity_labels.json`
-
-They are intentionally ignored by Git. The GitHub Actions workflow runs tests,
-trains offline on pushes to `main` or manual dispatch, verifies both artifacts,
-and uploads them as a short-lived workflow artifact. `models/.gitkeep` keeps the
-directory in the repository.
-
-## Limitations and safety
-
-This is a prototype, not a substitute for a clinician or pharmacist. It does not
-prove that a product is safe, may miss brand names, herbal ingredients, OCR
-errors, regional products, or interactions absent from its training examples.
-Never stop or change a medicine based only on this output; validate every flag
-with a qualified professional.
-
-DDInter and PubChem have their own terms and provenance. Review upstream sources
-before redistribution or clinical use.
+The catalog cannot establish that a product is safe and may not cover brand names, formulation differences, or interactions absent from its sources. Do not stop or change a medicine based only on this output. Have every flag reviewed by a qualified clinician or pharmacist.
